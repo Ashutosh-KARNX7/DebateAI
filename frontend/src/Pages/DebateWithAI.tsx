@@ -18,6 +18,14 @@ export default function DebateAI() {
   const [searchParams] = useSearchParams();
   const topic = searchParams.get("topic");
 
+  const [isListening, setIsListening] = useState<boolean>(false);
+  const [recognition, setRecognition] = useState<SpeechRecognition | null>(null);
+  const [interimTranscript, setInterimTranscript] = useState<string>('');
+
+  
+  const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
+  const [currentUtterance, setCurrentUtterance] = useState<SpeechSynthesisUtterance | null>(null);
+  const synth = window.speechSynthesis;
 
   useEffect(() => {
     // Initialize WebSocket
@@ -36,6 +44,8 @@ export default function DebateAI() {
         });
         setIsLoading(false);
 
+        // Automatically speak the AI's response
+        speakText(data.response);
       } else if (data.type === 'analysis_response') {
         setAnalysis({
           userAnalysis: data.user_analysis_content,
@@ -55,7 +65,53 @@ export default function DebateAI() {
     return () => ws.close();
   }, []);
 
-  
+  useEffect(() => {
+    // Initialize SpeechRecognition
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      const recognitionInstance = new SpeechRecognition();
+      recognitionInstance.continuous = true; 
+      recognitionInstance.interimResults = true; 
+      recognitionInstance.lang = 'en-US';
+
+      recognitionInstance.onresult = (event) => {
+        let finalTranscript = '';
+        let interimTranscript = '';
+
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const transcript = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            finalTranscript += transcript + ' ';
+          } else {
+            interimTranscript += transcript;
+          }
+        }
+
+        // Update the user argument with the final transcript
+        if (finalTranscript) {
+          setUserArgument((prev) => prev + finalTranscript);
+        }
+
+        // Display interim results in real-time
+        setInterimTranscript(interimTranscript);
+      };
+
+      recognitionInstance.onerror = (event) => {
+        console.error('Speech recognition error:', event.error);
+        setIsListening(false);
+      };
+
+      recognitionInstance.onend = () => {
+        setIsListening(false);
+        setInterimTranscript(''); 
+      };
+
+      setRecognition(recognitionInstance);
+    } else {
+      console.warn('SpeechRecognition is not supported in this browser.');
+    }
+  }, []);
+
   useEffect(() => {
     if (debateDuration <= 0) return;
     const timer = setInterval(() => setDebateDuration((prev) => prev - 1), 1000);
@@ -70,6 +126,55 @@ export default function DebateAI() {
     setIsLoading(true);
 
     socket.send(JSON.stringify({ type: 'debate', argument: userArgument }));
+  };
+
+  const toggleListening = () => {
+    if (recognition) {
+      if (isListening) {
+        recognition.stop();
+        setIsListening(false);
+      } else {
+        recognition.start();
+        setIsListening(true);
+      }
+    }
+  };
+
+  const speakText = (text: string) => {
+    if (synth.speaking) {
+      synth.cancel();
+    }
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'en-US';
+    utterance.rate = 1;
+    utterance.pitch = 1;
+
+    utterance.onstart = () => {
+      setIsSpeaking(true);
+      setCurrentUtterance(utterance);
+    };
+
+    utterance.onend = () => {
+      setIsSpeaking(false);
+      setCurrentUtterance(null);
+    };
+
+    utterance.onerror = (event) => {
+      console.error('SpeechSynthesis error:', event);
+      setIsSpeaking(false);
+      setCurrentUtterance(null);
+    };
+
+    synth.speak(utterance);
+  };
+
+  const stopSpeaking = () => {
+    if (synth.speaking && currentUtterance) {
+      synth.cancel();
+      setIsSpeaking(false);
+      setCurrentUtterance(null);
+    }
   };
 
   return (
@@ -154,6 +259,14 @@ export default function DebateAI() {
                       <div className="bg-gray-100 dark:bg-gray-700 rounded-2xl rounded-tl-none p-4 max-w-[70%]">
                         <div className="flex items-center justify-between mb-1">
                           <p className="text-gray-700 dark:text-gray-300 text-sm">AI Assistant</p>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={isSpeaking ? stopSpeaking : () => speakText(entry.ai)}
+                            className="text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
+                          >
+                            {isSpeaking ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+                          </Button>
                         </div>
                         <p className="text-gray-700 dark:text-gray-300">{entry.ai}</p>
                       </div>
@@ -179,13 +292,21 @@ export default function DebateAI() {
             {/* Input Area */}
             <div className="flex space-x-4">
               <Textarea
-                value={userArgument} // Show interim results in the textarea
+                value={userArgument + interimTranscript} // Show interim results in the textarea
                 onChange={(e) => setUserArgument(e.target.value)}
                 placeholder="Present your argument..."
                 className="flex-1 bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-black dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500 resize-none"
                 rows={3}
               />
               <div className="flex flex-col space-y-2">
+                <Button
+                  onClick={toggleListening}
+                  className={`h-12 w-12 rounded-full ${
+                    isListening ? 'bg-red-500 hover:bg-red-600' : 'bg-blue-500 hover:bg-blue-600'
+                  }`}
+                >
+                  <Mic className="w-5 h-5 text-white" />
+                </Button>
                 <Button
                   onClick={handleDebate}
                   className="h-12 w-12 rounded-full bg-blue-500 hover:bg-blue-600"
@@ -200,4 +321,3 @@ export default function DebateAI() {
     </div>
   );
 }
-

@@ -1,275 +1,203 @@
 import { useEffect, useState } from 'react';
-import axios from "axios";
-import { motion, AnimatePresence } from 'framer-motion';
-import { Brain, Send, Trophy, ArrowLeft, ThumbsUp, ThumbsDown, Award, Sparkles,Timer } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { Brain, Trophy, ArrowLeft, Timer, Send, Mic, Volume2, VolumeX } from 'lucide-react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Card } from '@/components/ui/card';
-import SubmitButton from '../Utils/SubmitButton';
-import Header from '../Utils/Header';
-import SettingsModal from '@/components/Settings';
-
 
 export default function DebateAI() {
   const navigate = useNavigate();
-  const [userArgument, setUserArgument] = useState<string>("");
+  const [userArgument, setUserArgument] = useState<string>('');
   const [debateLog, setDebateLog] = useState<{ user: string; ai: string }[]>([]);
   const [userScore, setUserScore] = useState<number>(0);
-  const [analysis, setAnalysis] = useState<{
-    userAnalysis: string;
-    userPoints : string;
-  } | null>(null);
+  const [analysis, setAnalysis] = useState<{ userAnalysis: string; userPoints: string } | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
-  const [isSettingsOpen, setIsSettingsOpen] = useState(true);
-  const [debateDuration, setDebateDuration] = useState(60); // Default duration
-
-  const handleMouseMove = (e: React.MouseEvent) => {
-    setMousePosition({ x: e.clientX, y: e.clientY });
-  };
+  const [debateDuration, setDebateDuration] = useState(60);
+  const [currentRound, setCurrentRound] = useState("Opening Round");
+  const [socket, setSocket] = useState<WebSocket | null>(null);
+  const [searchParams] = useSearchParams();
+  const topic = searchParams.get("topic");
 
 
+  useEffect(() => {
+    // Initialize WebSocket
+    const ws = new WebSocket('ws://localhost:1818/debate/ws');
 
-useEffect(() => {
-  setIsSettingsOpen(true);
-},[]);
+    ws.onopen = () => console.log('Connected to WebSocket');
 
-useEffect(() => {
-  if (debateDuration <= 0) return; 
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      console.log('WebSocket message:', data);
+      if (data.type === 'debate_response') {
+        setDebateLog((prevLog) => {
+          const updatedLog = [...prevLog];
+          updatedLog[updatedLog.length - 1].ai = data.response;
+          return updatedLog;
+        });
+        setIsLoading(false);
 
-  const timer = setInterval(() => {
-    setDebateDuration((prevTime) => prevTime - 1);
-  }, 1000); 
+      } else if (data.type === 'analysis_response') {
+        setAnalysis({
+          userAnalysis: data.user_analysis_content,
+          userPoints: data.user_analysis_points,
+        });
+        setUserScore((prev) => prev + parseInt(data.user_analysis_points || '0'));
+      } else if (data.type === 'state_update') {
+        setDebateDuration(data.time_remaining);
+        setCurrentRound(data.current_section);
+      }
+    };
 
-  return () => clearInterval(timer);
-}, [debateDuration]);
+    ws.onerror = (error) => console.error('WebSocket error:', error);
+    ws.onclose = () => console.log('WebSocket closed');
 
-  const handleDebate = async () => {
-    if (!userArgument.trim()) return;
+    setSocket(ws);
+    return () => ws.close();
+  }, []);
 
-    // Add user's argument to the debate log immediately
-    setDebateLog((prevLog) => [...prevLog, { user: userArgument, ai: "" }]);
-    setUserArgument("");
+  
+  useEffect(() => {
+    if (debateDuration <= 0) return;
+    const timer = setInterval(() => setDebateDuration((prev) => prev - 1), 1000);
+    return () => clearInterval(timer);
+  }, [debateDuration]);
+
+  const handleDebate = () => {
+    if (!userArgument.trim() || !socket) return;
+
+    setDebateLog((prevLog) => [...prevLog, { user: userArgument, ai: '' }]);
+    setUserArgument('');
     setIsLoading(true);
 
-    try {
-      // Send the user's argument to the backend and receive AI's response
-      const response = await axios.post("http://localhost:5000/debate", {
-        argument: userArgument,
-      });
-      const aiResponse = response.data.counter_argument;
-
-      // Update the last log entry with AI's response
-      setDebateLog((prevLog) => {
-        const updatedLog = [...prevLog];
-        updatedLog[updatedLog.length - 1].ai = aiResponse;
-        return updatedLog;
-      });
-
-      // Fetch analysis for both user and AI arguments
-        const analysisresponse = await axios.post("http://localhost:5000/analyse", {
-          user_argument: userArgument,
-          
-        });
-        console.log(analysisresponse);
-
-        if (analysisresponse.data) {
-          setAnalysis({
-            userAnalysis: analysisresponse.data.user_analysis_content,
-            userPoints: analysisresponse.data.user_analysis_points,
-          });
-          
-        // console.log(analysis);
-
-        setUserScore((prev) => prev + parseInt(analysisresponse.data.user_analysis_points|| "0"));
-        }else{
-          console.error("No analysis data received from the backend");
-        }
-    } catch (error) {
-      console.error("Error debating with AI or fetching analysis:", error);
-    } finally {
-      setIsLoading(false);
-    }
+    socket.send(JSON.stringify({ type: 'debate', argument: userArgument }));
   };
 
   return (
-    <div 
-      className="min-h-screen bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 overflow-hidden relative"
-      onMouseMove={handleMouseMove}
-    >
-         
-      {/* settings */}
-      <SettingsModal
-        duration={debateDuration}
-        rounds={null} // Not used
-        aiJudge={null} // Not used
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-        onSave={(settings) => setDebateDuration(settings.duration)} // Only Save Duration
-      />
+    <div className="min-h-screen bg-white dark:bg-black text-black dark:text-white">
+      <div className="max-w-7xl mx-auto p-8">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-8 bg-gray-100 dark:bg-gray-900 p-4 rounded-lg">
+          <Button
+            variant="ghost"
+            className="text-black dark:text-white hover:bg-gray-200 dark:hover:bg-gray-800"
+            onClick={() => navigate('/')}
+          >
+            <ArrowLeft className="mr-2" /> Back
+          </Button>
 
-      {/* background */}
-      {!isSettingsOpen && (
-        <>
-      <div className="absolute inset-0 z-0">
-        <div className="relative w-full h-full">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <motion.div
-              key={i}
-              className="absolute rounded-full blur-3xl opacity-5"
-              style={{
-                background: 'linear-gradient(to right, #ffffff, #fb923c)',
-                width: '40vw',
-                height: '40vw',
-                left: `${i * 30}%`,
-                top: `${(i * 40) % 100}%`,
-              }}
-              animate={{
-                x: mousePosition.x * 0.02,
-                y: mousePosition.y * 0.02,
-                scale: [1, 1.1, 1],
-              }}
-              transition={{
-                x: { type: "spring", stiffness: 100, damping: 30 },
-                y: { type: "spring", stiffness: 100, damping: 30 },
-                scale: { duration: 10 + i * 2, repeat: Infinity, repeatType: "reverse" }
-              }}
-            />
-          ))}
-        </div>
-      </div>
+          <div className="text-center">
+            <h1 className="text-3xl font-bold text-black dark:text-white">{topic}</h1>
+            <p className="text-gray-600 dark:text-gray-400">{currentRound}</p>
+          </div>
 
-      <div className="relative z-10 container mx-auto px-4 py-8">
-  <div className="flex justify-between items-center mb-8">
-    
-    {/* Back Button on the Left */}
-    <Button 
-      variant="ghost" 
-      className="text-white hover:text-orange-400 hover:bg-white/5 backdrop-blur-xl border-white/10"
-      onClick={() => navigate('/')}
-    >
-      <ArrowLeft className="mr-2" /> Back to Home
-    </Button>
+          <div className="flex space-x-4">
+            <Card className="bg-white dark:bg-gray-800">
+              <div className="flex items-center space-x-3 p-3">
+                <Timer className="w-5 h-5 text-blue-500 dark:text-blue-400" />
+                <div>
+                  <p className="text-xs text-gray-600 dark:text-gray-400">Time Left</p>
+                  <p className="text-xl font-bold text-black dark:text-white">{debateDuration}s</p>
+                </div>
+              </div>
+            </Card>
 
-    {/* Centered Header */}
-    <div className="flex-1 flex justify-center">
-      <Header />
-    </div>
-
-    {/* Right Section - Timer & Score Cards */}
-    <div className="flex space-x-4">
-      {/* Timer */}
-      <Card className="p-4 bg-white/5 backdrop-blur-xl border-white/10">
-        <div className="flex items-center space-x-4">
-          <Timer className="w-6 h-6 text-orange-400" />
-          <div>
-            <p className="text-zinc-400 text-sm">Timer</p>
-            <p className="text-2xl font-bold text-white">{debateDuration}</p>
+            <Card className="bg-white dark:bg-gray-800">
+              <div className="flex items-center space-x-3 p-3">
+                <Trophy className="w-5 h-5 text-yellow-500 dark:text-yellow-400" />
+                <div>
+                  <p className="text-xs text-gray-600 dark:text-gray-400">Points</p>
+                  <p className="text-xl font-bold text-black dark:text-white">{userScore}</p>
+                </div>
+              </div>
+            </Card>
           </div>
         </div>
-      </Card>
 
-      {/* Score Card */}
-      <Card className="p-4 bg-white/5 backdrop-blur-xl border-white/10">
-        <div className="flex items-center space-x-4">
-          <Trophy className="w-6 h-6 text-orange-400" />
-          <div>
-            <p className="text-zinc-400 text-sm">Score</p>
-            <p className="text-2xl font-bold text-white">{userScore}</p>
-          </div>
-          {userScore >= 100 && (
-            <motion.div
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              className="ml-2"
-            >
-              <Award className="w-8 h-8 text-orange-400" />
-            </motion.div>
-          )}
-        </div>
-      </Card>
-    </div>
-  </div>
-
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+        {/* Main Content */}
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* Analysis Panel */}
-          <Card className="p-6 bg-white/5 backdrop-blur-xl border-white/10 h-fit">
-            <h2 className="text-2xl font-bold mb-6 text-white flex items-center">
-              <Brain className="w-6 h-6 mr-2 text-orange-400" /> Analysis
+          <Card className="lg:col-span-1 bg-white dark:bg-gray-800 p-6">
+            <h2 className="text-xl font-bold text-black dark:text-white flex items-center mb-4">
+              <Brain className="w-5 h-5 mr-2 text-blue-500 dark:text-blue-400" />
+              Analysis
             </h2>
-            {analysis ? (
-      <div className="mb-4">
-        <p className='text-zinc-400'>{analysis.userAnalysis}</p>
-      </div>
-    ) : !isLoading ? (
-      <p className='text-zinc-400'>No analysis available yet. Submit an argument to get started.</p>
-    ) : (
-      <p className='text-zinc-400'>Loading...</p>
-    )}
+            <div className="text-gray-700 dark:text-gray-300">
+              {analysis ? (
+                <p>{analysis.userAnalysis}</p>
+              ) : !isLoading ? (
+                <p className="text-gray-500 dark:text-gray-400">Present your argument to receive analysis.</p>
+              ) : (
+                <div className="flex items-center space-x-2">
+                  <Brain className="w-4 h-4 animate-spin text-blue-500 dark:text-blue-400" />
+                  <p>Analyzing...</p>
+                </div>
+              )}
+            </div>
           </Card>
 
           {/* Debate Area */}
-          <div className="md:col-span-2 space-y-6">
-  <div className="p-6 bg-white/5 backdrop-blur-xl border-white/10 min-h-[400px] max-h-[430px] overflow-y-auto">
-    {debateLog.map((entry, index) => (
-      <div key={index} className="flex flex-col mb-6">
-        
-        {/* User's Argument */}
-        <div className="flex justify-start">
-          <div className="bg-orange-400 text-black p-4 rounded-lg max-w-md shadow-lg">
-            <p className="font-bold">You:</p>
-            <p>{entry.user}</p>
-          </div>
-        </div>
+          <div className="lg:col-span-3 space-y-6">
+            <Card className="bg-white dark:bg-gray-800 p-6 min-h-[500px] max-h-[500px] overflow-y-auto">
+              {debateLog.map((entry, index) => (
+                <div key={index} className="space-y-4 mb-6">
+                  {/* User Message */}
+                  <div className="flex justify-end">
+                    <div className="bg-blue-500 dark:bg-blue-600 rounded-2xl rounded-tr-none p-4 max-w-[70%]">
+                      <p className="text-white/80 text-sm mb-1">You</p>
+                      <p className="text-white">{entry.user}</p>
+                    </div>
+                  </div>
 
-        {/* AI's Response */}
-        {isLoading && index === debateLog.length - 1 && entry.ai === "" ? (
-          <div className="flex justify-end mt-2 animate-pulse">
-            <div className="bg-zinc-800 text-zinc-300 p-4 rounded-lg max-w-md shadow-lg">
-              <p className="font-bold">AI:</p>
-              <span className="flex items-center">
-                <Brain className="w-5 h-5 animate-spin text-orange-400 mr-2" />
-                AI is thinking...
-              </span>
-            </div>
-          </div>
-        ) : (
-          entry.ai && (
-            <div className="flex justify-end mt-2">
-              <div className="bg-zinc-800 text-zinc-300 p-4 rounded-lg max-w-md shadow-lg">
-                <p className="font-bold">AI:</p>
-                <p>{entry.ai}</p>
-              </div>
-            </div>
-          )
-        )}
-      </div>
-    ))}
-  </div>
+                  {/* AI Response */}
+                  {entry.ai && (
+                    <div className="flex justify-start">
+                      <div className="bg-gray-100 dark:bg-gray-700 rounded-2xl rounded-tl-none p-4 max-w-[70%]">
+                        <div className="flex items-center justify-between mb-1">
+                          <p className="text-gray-700 dark:text-gray-300 text-sm">AI Assistant</p>
+                        </div>
+                        <p className="text-gray-700 dark:text-gray-300">{entry.ai}</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              {/* Loading State */}
+              {isLoading && (
+                <div className="flex justify-start mt-4">
+                  <div className="bg-gray-100 dark:bg-gray-700 rounded-2xl rounded-tl-none p-4 max-w-[70%]">
+                    <p className="text-gray-700 dark:text-gray-300 text-sm mb-1">AI Assistant</p>
+                    <div className="flex items-center space-x-2">
+                      <Brain className="w-4 h-4 animate-spin text-blue-500 dark:text-blue-400" />
+                      <p className="text-gray-700 dark:text-gray-300">Thinking...</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </Card>
 
             {/* Input Area */}
-            <div className="flex space-x-2">
+            <div className="flex space-x-4">
               <Textarea
-                value={userArgument}
+                value={userArgument} // Show interim results in the textarea
                 onChange={(e) => setUserArgument(e.target.value)}
                 placeholder="Present your argument..."
-                className="bg-white/5 backdrop-blur-xl border-white/10 text-white placeholder:text-zinc-500"
+                className="flex-1 bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-black dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500 resize-none"
                 rows={3}
               />
-              <div
-                onClick={handleDebate}
-                className=" w-24 h-12 bg-orange-500 hover:bg-orange-600 rounded-lg text-black p-0 cursor-pointer"
-              >
-                <SubmitButton/>
+              <div className="flex flex-col space-y-2">
+                <Button
+                  onClick={handleDebate}
+                  className="h-12 w-12 rounded-full bg-blue-500 hover:bg-blue-600"
+                >
+                  <Send className="w-5 h-5 text-white" />
+                </Button>
               </div>
             </div>
           </div>
         </div>
       </div>
-      </>
-      )}
     </div>
   );
 }
+

@@ -1,31 +1,64 @@
-import { useContext, useState } from 'react'
-import './App.css'
-import AuthenticationPage from './Pages/Authentication'
-import { ThemeProvider, ThemeContext } from './context/theme-provider'
-import { Button } from './components/ui/button'
+import { useContext, useEffect } from "react";
+import { ThemeProvider, ThemeContext, ThemeOptions } from "./context/theme-provider";
+import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import Navbar from "./Pages/Landing page/Navbar";
+import InteractiveDemo from "./Pages/Demo/marqu";
+import FAQ from "./Pages/FaqPage/FAQ"; // Ensure this is a default import
 
-import { LuMoon } from "react-icons/lu";
-import { LuSun } from "react-icons/lu";
+// Import the Home component
+import Home from "./Pages/Landing page/Home1"; // Correct the path if necessary
+import HowItWorks from "./Pages/HowItWorks/HowItWorks";
+import Footer from "./Pages/Footer/Footer";
+import PictopyLanding from "./Pages/pictopy-landing";
+import BouncyCardsFeatures from "./components/ui/Bouncy Card Features";
+import { ScrollProgress } from "./components/ui/ScrollProgress";
 
-
-function Subscriber(){
-  const value = useContext(ThemeContext);
-  return(
-    <Button onClick={value!.toggleTheme} className='p-0 h-8 w-8 md:h-12 md:w-12 fixed right-4 bottom-4'>
-      {value?.theme ? <LuMoon className='text-xl'/> : <LuSun className="text-xl"/>}
-    </Button>
-  )
+function HomePage() {
+  return (
+    <>
+      <Home /> {/* This will now render the Home component */}
+      <ScrollProgress></ScrollProgress>
+      <InteractiveDemo />
+      <HowItWorks />
+      <BouncyCardsFeatures />
+      <PictopyLanding />
+      <FAQ />
+      <Footer />
+    </>
+  );
 }
-function App() {
+
+function AppContent() {
+  // Use the ThemeContext and explicitly type the theme
+  const { theme } = useContext(ThemeContext);
+
+  // Add or remove the "dark" class based on the theme
+  useEffect(() => {
+    if (theme === ThemeOptions.Dark) {
+      document.body.classList.add("dark");
+    } else {
+      document.body.classList.remove("dark");
+    }
+  }, [theme]);
 
   return (
-    <div>
-      <ThemeProvider>
-        <AuthenticationPage></AuthenticationPage>
-        {/* <Subscriber></Subscriber> */}
-      </ThemeProvider>
-    </div>
-  )
+    <Router>
+      <Navbar />
+      <div className="relative pt-20">
+        <Routes>
+          <Route path="/" element={<HomePage />} />
+        </Routes>
+      </div>
+    </Router>
+  );
 }
 
-export default App
+function App() {
+  return (
+    <ThemeProvider>
+      <AppContent />
+    </ThemeProvider>
+  );
+}
+
+export default App;

@@ -1,80 +1,68 @@
 import React, { useEffect, useState } from "react";
 
-enum ThemeOptions {
-    Light,
-    Dark
+// Export the ThemeOptions enum
+export enum ThemeOptions {
+    Light = 0,
+    Dark = 1,
 }
 
 interface ThemeContextStructure {
-    //learned function types
-    theme: ThemeOptions, toggleTheme: () => void
+    theme: ThemeOptions;
+    toggleTheme: () => void;
 }
 
-var defaultThemeContext: ThemeContextStructure = {
+const defaultThemeContext: ThemeContextStructure = {
     theme: ThemeOptions.Light,
-    toggleTheme: () => { }
-}
+    toggleTheme: () => {},
+};
+
 export const ThemeContext = React.createContext<ThemeContextStructure>(defaultThemeContext);
 
-//learned how to validate a value, if it is the part of enum
+// Helper function to validate theme code
 function validateThemeCode(themeCode: number): boolean {
-    return Object.values(ThemeOptions).includes(themeCode);
+    return themeCode === ThemeOptions.Light || themeCode === ThemeOptions.Dark;
 }
 
-
-function getInitialTheme() {
-    //get theme to browser default
-    let newTheme: ThemeOptions;
-
-    let systemThemeCodeStr = localStorage.getItem("Theme");
-    if (systemThemeCodeStr == null) {
-        let defaultBrowserTheme = window.matchMedia("(prefers-color-scheme: light)").matches ? ThemeOptions.Light : ThemeOptions.Dark;
-        console.log(defaultBrowserTheme);
-        newTheme = defaultBrowserTheme;
-    }
-    else {
-        //learned importance of validation
-        //validation is for the code which other people will write on top of mine
-        let systemThemeCode = +systemThemeCodeStr;
-        console.log(validateThemeCode(systemThemeCode))
-        if (validateThemeCode(systemThemeCode)) {
-            //learned value to its correlated enum
-            newTheme = systemThemeCode as ThemeOptions;
-            console.log("storage", newTheme);
-        }
-        else {
-            newTheme = ThemeOptions.Light;
+function getInitialTheme(): ThemeOptions {
+    const storedTheme = localStorage.getItem("Theme");
+    
+    if (storedTheme) {
+        const themeCode = parseInt(storedTheme, 10);
+        if (validateThemeCode(themeCode)) {
+            return themeCode;
         }
     }
 
-    return newTheme;
+    // If no valid theme is found, use system preference
+    const systemTheme = window.matchMedia("(prefers-color-scheme: dark)").matches
+        ? ThemeOptions.Dark
+        : ThemeOptions.Light;
+
+    return systemTheme;
 }
-export function ThemeProvider({ children }: { children: any }): any {
+
+export function ThemeProvider({ children }: { children: React.ReactNode }) {
     const [theme, setTheme] = useState<ThemeOptions>(getInitialTheme());
 
     useEffect(() => {
-        //add a set function which will update the local storage.
-        let bodyElement = document.body;
-        if (theme == ThemeOptions.Light) {
+        const bodyElement = document.body;
+
+        if (theme === ThemeOptions.Light) {
             localStorage.setItem("Theme", String(ThemeOptions.Light));
             bodyElement.classList.remove("dark");
-        }
-        else {
+        } else {
             localStorage.setItem("Theme", String(ThemeOptions.Dark));
             bodyElement.classList.add("dark");
         }
-    }, [theme])
-    function toggleTheme() {
-        if (theme == ThemeOptions.Dark) {
-            setTheme(ThemeOptions.Light);
-        }
-        else {
-            setTheme(ThemeOptions.Dark);
-        }
-    }
+    }, [theme]);
+
+    const toggleTheme = () => {
+        setTheme(prevTheme => prevTheme === ThemeOptions.Dark ? ThemeOptions.Light : ThemeOptions.Dark);
+    };
+
     return (
         <ThemeContext.Provider value={{ theme, toggleTheme }}>
             {children}
         </ThemeContext.Provider>
-    )
+    );
 }
